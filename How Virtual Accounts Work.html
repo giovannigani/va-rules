@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Virtual Accounts Work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: one reading column; each rule = diagram + "what happens" + "for the island" */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --ink:#17212c; --muted:#5a6673; --line:#c7d0da;
+  --acc:#1f5fbf; --acc-soft:#e2ebf9;
+  --ok:#1d8253; --ok-soft:#dff2e8;
+  --bad:#c0392f; --bad-soft:#fbe4e2;
+  --warn:#a86d14; --warn-soft:#fbefd9;
+  --pill:#0d1117; --pill-ink:#f2f5f8;
+  --f-body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f141a; --surface:#17202a; --ink:#e5eaf0; --muted:#9aa6b3; --line:#334050;
+    --acc:#72a3f0; --acc-soft:#1a2b45;
+    --ok:#52c38d; --ok-soft:#163226;
+    --bad:#f0796f; --bad-soft:#3b1d1a;
+    --warn:#e2a94c; --warn-soft:#3a2b13;
+    --pill:#000000; --pill-ink:#f2f5f8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --surface:#17202a; --ink:#e5eaf0; --muted:#9aa6b3; --line:#334050;
+  --acc:#72a3f0; --acc-soft:#1a2b45;
+  --ok:#52c38d; --ok-soft:#163226;
+  --bad:#f0796f; --bad-soft:#3b1d1a;
+  --warn:#e2a94c; --warn-soft:#3a2b13;
+  --pill:#000000; --pill-ink:#f2f5f8;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg); color:var(--ink); font-family:var(--f-body); font-size:16px; line-height:1.55}
+.wrap{max-width:880px; margin:0 auto; padding:40px 20px 64px}
+header h1{font-size:30px; line-height:1.2; margin:0 0 10px; font-weight:600; text-wrap:balance}
+header p{margin:0 0 6px; color:var(--muted); max-width:64ch}
+nav{display:flex; flex-wrap:wrap; gap:8px; margin:22px 0 8px}
+nav a{font-size:13px; color:var(--ink); text-decoration:none; border:1px solid var(--line); background:var(--surface); padding:5px 10px; border-radius:999px}
+nav a:hover, nav a:focus-visible{border-color:var(--acc); color:var(--acc); outline:none}
+section{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:24px; margin-top:22px}
+section h2{font-size:20px; margin:0 0 4px; font-weight:600; text-wrap:balance; display:flex; gap:10px; align-items:baseline}
+section h2 .n{font-family:var(--f-mono); font-size:13px; color:var(--acc); font-weight:500}
+section .lede{margin:0 0 14px; color:var(--muted); max-width:66ch}
+figure{margin:0 0 16px; overflow-x:auto}
+figure svg{display:block; width:100%; height:auto; min-width:600px}
+figcaption{font-size:13px; color:var(--muted); margin-top:8px; max-width:70ch}
+.cols{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+.cols > div{font-size:15px}
+.cols h3{font-size:12px; letter-spacing:.06em; text-transform:uppercase; margin:0 0 6px; color:var(--muted); font-weight:600}
+.cols ul{margin:0; padding-left:18px}
+.cols li{margin-bottom:4px}
+.island{border-left:3px solid var(--acc); padding-left:12px}
+.mono{font-family:var(--f-mono); font-size:.92em}
+footer{margin-top:28px; font-size:13px; color:var(--muted)}
+footer ul{padding-left:18px}
+@media (max-width:640px){ .cols{grid-template-columns:1fr} header h1{font-size:25px} section{padding:18px} }
+
+/* SVG drawing classes */
+.b{fill:var(--surface); stroke:var(--line); stroke-width:1.5}
+.b-acc{fill:var(--acc-soft); stroke:var(--acc); stroke-width:1.5}
+.b-ok{fill:var(--ok-soft); stroke:var(--ok); stroke-width:1.5}
+.b-bad{fill:var(--bad-soft); stroke:var(--bad); stroke-width:1.5}
+.b-warn{fill:var(--warn-soft); stroke:var(--warn); stroke-width:1.5}
+.pill{fill:var(--pill)}
+.t{font-family:var(--f-body); font-size:13px; fill:var(--ink)}
+.tb{font-weight:600}
+.ts{font-family:var(--f-body); font-size:11.5px; fill:var(--muted)}
+.tm{font-family:var(--f-mono)}
+.big{font-size:21px}
+.tp{font-family:var(--f-body); font-size:13px; fill:var(--pill-ink)}
+.c-ok{fill:var(--ok)} .c-bad{fill:var(--bad)} .c-acc{fill:var(--acc)} .c-warn{fill:var(--warn)}
+.ln{stroke:var(--ink); stroke-width:1.4; fill:none}
+.ln-bad{stroke:var(--bad)} .ln-ok{stroke:var(--ok)} .ln-acc{stroke:var(--acc)}
+.dash{stroke-dasharray:5 4}
+.ah{fill:var(--ink)}
+.dot-acc{fill:var(--acc)} .dot-ok{fill:var(--ok)} .dot-bad{fill:var(--bad)} .dot-warn{fill:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>How virtual accounts work</h1>
+  <p>Illustrated rules for paying by virtual account (VA) in Indonesia, written for the Dynamic Island payment card: the OS captures a VA from a shopping app, and a tap sends the user to their bank app to pay.</p>
+  <p>Example numbers and amounts are made up. Each rule matches a row in the “General rules VA” sheet.</p>
+  <nav aria-label="Rules">
+    <a href="#anatomy">VA number</a><a href="#vs-account">VA vs account</a><a href="#fixed">Fixed vs non-fixed</a><a href="#reuse">Single-use</a><a href="#amount">Closed vs open amount</a><a href="#bank">Same vs other bank</a><a href="#expiry">Expiry</a><a href="#confirm">Confirmation</a><a href="#risk">Risks</a><a href="#journey">Island journey</a>
+  </nav>
+</header>
+
+<!-- 1 ANATOMY -->
+<section id="anatomy">
+  <h2><span class="n">01</span>What a VA number is made of</h2>
+  <p class="lede">A company code from the bank, then a number the company chooses. The bank itself is not inside the digits.</p>
+  <figure>
+    <svg viewBox="0 0 720 180" role="img" aria-label="A VA number has a company code followed by a customer or order number; the bank name comes from the screen text.">
+      <text class="ts" x="40" y="38">Shown on the payment screen</text>
+      <rect class="b" x="40" y="50" width="170" height="58" rx="8"/>
+      <text class="t tb" x="125" y="76" text-anchor="middle">BCA</text>
+      <text class="ts" x="125" y="94" text-anchor="middle">Virtual Account</text>
+      <rect class="b-acc" x="230" y="50" width="170" height="58" rx="8"/>
+      <text class="t tm big c-acc" x="315" y="87" text-anchor="middle">80777</text>
+      <rect class="b" x="400" y="50" width="280" height="58" rx="8"/>
+      <text class="t tm big" x="540" y="87" text-anchor="middle">0812 3456 789</text>
+      <line class="ln" x1="125" y1="108" x2="125" y2="124"/>
+      <line class="ln" x1="315" y1="108" x2="315" y2="124"/>
+      <line class="ln" x1="540" y1="108" x2="540" y2="124"/>
+      <text class="t tb" x="125" y="142" text-anchor="middle">Which bank</text>
+      <text class="ts" x="125" y="160" text-anchor="middle">read from the screen text</text>
+      <text class="t tb" x="315" y="142" text-anchor="middle">Company code</text>
+      <text class="ts" x="315" y="160" text-anchor="middle">from the bank (5 digits at BCA)</text>
+      <text class="t tb" x="540" y="142" text-anchor="middle">Customer or order number</text>
+      <text class="ts" x="540" y="160" text-anchor="middle">phone no. here; order ID at checkout</text>
+    </svg>
+    <figcaption>Example: Tokopedia's BCA VA is 80777 + the registered phone number. Length varies: BCA allows up to 23 digits, Mandiri up to 16, and most are 16.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>The prefix points to a merchant or a payment gateway, not always to the app.</li><li>The same digits mean nothing at another bank.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Capture the bank name together with the number.</li><li>Detect a 10–23 digit number next to words like “Virtual Account”, “Kode Bayar” or a bank name. Don't rely on one fixed length.</li></ul></div>
+  </div>
+</section>
+
+<!-- 2 VA VS ACCOUNT -->
+<section id="vs-account">
+  <h2><span class="n">02</span>A VA is not a normal bank account</h2>
+  <p class="lede">A normal account belongs to a person. A VA is a label that lets the bank match a payment to one bill, then pass the money to the company's real account.</p>
+  <figure>
+    <svg viewBox="0 0 720 250" role="img" aria-label="Normal transfer goes straight to a person's account. A VA payment goes to a VA number, the bank matches it to a bill, and the money lands in the merchant's real account.">
+      <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <text class="t tb" x="20" y="28">Normal account</text>
+      <rect class="b" x="20" y="42" width="90" height="50" rx="8"/><text class="t" x="65" y="72" text-anchor="middle">You</text>
+      <line class="ln" x1="110" y1="67" x2="146" y2="67" marker-end="url(#a2)"/>
+      <rect class="b" x="150" y="42" width="240" height="50" rx="8"/>
+      <text class="t tm" x="270" y="63" text-anchor="middle">123 456 7890</text>
+      <text class="ts" x="270" y="81" text-anchor="middle">Budi Santoso's savings account</text>
+      <text class="ts" x="420" y="58">• Any amount, any time</text>
+      <text class="ts" x="420" y="75">• Number stays forever, has a passbook or card</text>
+      <text class="ts" x="420" y="92">• Receiver checks who paid by hand</text>
+
+      <text class="t tb" x="20" y="142">Virtual account</text>
+      <rect class="b" x="20" y="156" width="90" height="50" rx="8"/><text class="t" x="65" y="186" text-anchor="middle">You</text>
+      <line class="ln" x1="110" y1="181" x2="146" y2="181" marker-end="url(#a2)"/>
+      <rect class="b-acc" x="150" y="156" width="170" height="50" rx="8"/>
+      <text class="t tm" x="235" y="177" text-anchor="middle">8808 1023 4471 5520</text>
+      <text class="ts" x="235" y="195" text-anchor="middle">VA for one order</text>
+      <line class="ln" x1="320" y1="181" x2="356" y2="181" marker-end="url(#a2)"/>
+      <rect class="b" x="360" y="156" width="150" height="50" rx="8"/>
+      <text class="t" x="435" y="177" text-anchor="middle">Bank matches</text>
+      <text class="t" x="435" y="195" text-anchor="middle">it to the bill</text>
+      <line class="ln" x1="510" y1="181" x2="546" y2="181" marker-end="url(#a2)"/>
+      <rect class="b-ok" x="550" y="156" width="150" height="50" rx="8"/>
+      <text class="t" x="625" y="177" text-anchor="middle">Merchant's real</text>
+      <text class="t" x="625" y="195" text-anchor="middle">account</text>
+      <text class="ts" x="435" y="230" text-anchor="middle">order marked paid automatically</text>
+      <line class="ln dash" x1="435" y1="206" x2="435" y2="218"/>
+    </svg>
+    <figcaption>The bank issues no passbook or card for a VA. It exists only so the company knows which customer or order a payment belongs to.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>The bank shows the name tied to the VA (merchant, gateway or account holder) before you confirm.</li><li>Many apps collect through gateways like Xendit or Midtrans, so the name may be the gateway's.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Treat a VA as “pay this bill”, never as a payee to save.</li><li>Show the expected merchant name so the user can match it on the bank screen.</li></ul></div>
+  </div>
+</section>
+
+<!-- 3 FIXED VS NON-FIXED -->
+<section id="fixed">
+  <h2><span class="n">03</span>Fixed VA vs non-fixed VA</h2>
+  <p class="lede">A fixed VA stays the same for one person. A non-fixed VA is new for every order.</p>
+  <figure>
+    <svg viewBox="0 0 720 270" role="img" aria-label="A fixed VA keeps the same number every week for e-wallet top-ups. A non-fixed VA gets a new number for each order at checkout.">
+      <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <text class="t tb" x="20" y="28">Fixed (static) VA</text>
+      <text class="ts" x="20" y="46">Use: e-wallet top-up, BPJS, monthly bills</text>
+      <rect class="b" x="20" y="62" width="76" height="36" rx="18"/><text class="t" x="58" y="85" text-anchor="middle">Week 1</text>
+      <rect class="b" x="20" y="112" width="76" height="36" rx="18"/><text class="t" x="58" y="135" text-anchor="middle">Week 2</text>
+      <rect class="b" x="20" y="162" width="76" height="36" rx="18"/><text class="t" x="58" y="185" text-anchor="middle">Week 3</text>
+      <line class="ln" x1="96" y1="80" x2="116" y2="80" marker-end="url(#a3)"/>
+      <line class="ln" x1="96" y1="130" x2="116" y2="130" marker-end="url(#a3)"/>
+      <line class="ln" x1="96" y1="180" x2="116" y2="180" marker-end="url(#a3)"/>
+      <rect class="b-ok" x="120" y="62" width="215" height="36" rx="8"/><text class="t tm" x="227" y="85" text-anchor="middle">70001 0812 3456 789</text>
+      <rect class="b-ok" x="120" y="112" width="215" height="36" rx="8"/><text class="t tm" x="227" y="135" text-anchor="middle">70001 0812 3456 789</text>
+      <rect class="b-ok" x="120" y="162" width="215" height="36" rx="8"/><text class="t tm" x="227" y="185" text-anchor="middle">70001 0812 3456 789</text>
+      <text class="ts" x="20" y="226">• Same number every time (GoPay via BCA here)</text>
+      <text class="ts" x="20" y="243">• Tied to one person, usually open amount</text>
+      <text class="ts" x="20" y="260">• Expiry can be years</text>
+
+      <line class="ln dash" x1="358" y1="20" x2="358" y2="260" style="stroke:var(--line)"/>
+
+      <text class="t tb" x="380" y="28">Non-fixed (dynamic) VA</text>
+      <text class="ts" x="380" y="46">Use: e-commerce checkout, ticket booking</text>
+      <rect class="b" x="380" y="62" width="76" height="36" rx="18"/><text class="t" x="418" y="85" text-anchor="middle">Order A</text>
+      <rect class="b" x="380" y="112" width="76" height="36" rx="18"/><text class="t" x="418" y="135" text-anchor="middle">Order B</text>
+      <rect class="b" x="380" y="162" width="76" height="36" rx="18"/><text class="t" x="418" y="185" text-anchor="middle">Order C</text>
+      <line class="ln" x1="456" y1="80" x2="476" y2="80" marker-end="url(#a3)"/>
+      <line class="ln" x1="456" y1="130" x2="476" y2="130" marker-end="url(#a3)"/>
+      <line class="ln" x1="456" y1="180" x2="476" y2="180" marker-end="url(#a3)"/>
+      <rect class="b-acc" x="480" y="62" width="220" height="36" rx="8"/><text class="t tm" x="590" y="85" text-anchor="middle">8808 1023 4471 5520</text>
+      <rect class="b-acc" x="480" y="112" width="220" height="36" rx="8"/><text class="t tm" x="590" y="135" text-anchor="middle">8808 1023 9902 3318</text>
+      <rect class="b-acc" x="480" y="162" width="220" height="36" rx="8"/><text class="t tm" x="590" y="185" text-anchor="middle">8808 1024 0057 8841</text>
+      <text class="ts" x="380" y="226">• New number every checkout</text>
+      <text class="ts" x="380" y="243">• Tied to one order, usually closed amount</text>
+      <text class="ts" x="380" y="260">• Expires in minutes to hours</text>
+    </svg>
+    <figcaption>The prefix of a fixed e-wallet VA is the same for everyone at that bank; only the phone number differs.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>Fixed: users can pay into it again and again.</li><li>Non-fixed: once the order is paid or expired, the number is done.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Fixed: no countdown; can be remembered for repeat top-ups if the user agrees.</li><li>Non-fixed: one-time card; remove after paid or expired, never save.</li></ul></div>
+  </div>
+</section>
+
+<!-- 4 SINGLE USE & REUSE -->
+<section id="reuse">
+  <h2><span class="n">04</span>Single-use VAs, and why old numbers are dangerous</h2>
+  <p class="lede">A single-use VA closes after one payment. Later, the same number can be issued to someone else's order.</p>
+  <figure>
+    <svg viewBox="0 0 720 220" role="img" aria-label="Timeline of one VA number: issued to Gio's order, paid and closed, reissued days later to a stranger's order; paying from an old card sends money to the stranger's order.">
+      <text class="ts" x="360" y="26" text-anchor="middle">One VA number over time</text>
+      <text class="t tm" x="360" y="48" text-anchor="middle">8808 1023 4471 5520</text>
+      <line class="ln" x1="40" y1="112" x2="690" y2="112"/>
+      <circle class="dot-acc" cx="90" cy="112" r="8"/>
+      <circle class="dot-ok" cx="270" cy="112" r="8"/>
+      <circle class="dot-warn" cx="450" cy="112" r="8"/>
+      <circle class="dot-bad" cx="630" cy="112" r="8"/>
+      <text class="t tb" x="90" y="86" text-anchor="middle">Mon 10:00</text>
+      <text class="t tb" x="270" y="86" text-anchor="middle">Mon 10:20</text>
+      <text class="t tb" x="450" y="86" text-anchor="middle">Thu</text>
+      <text class="t tb c-bad" x="630" y="86" text-anchor="middle">Fri</text>
+      <text class="t" x="90" y="142" text-anchor="middle">Issued to</text>
+      <text class="t" x="90" y="160" text-anchor="middle">Gio's order</text>
+      <text class="t" x="270" y="142" text-anchor="middle">Paid, so the</text>
+      <text class="t" x="270" y="160" text-anchor="middle">VA closes</text>
+      <text class="t" x="450" y="142" text-anchor="middle">Same number given</text>
+      <text class="t" x="450" y="160" text-anchor="middle">to a stranger's order</text>
+      <text class="t c-bad" x="630" y="142" text-anchor="middle">Gio taps an old card:</text>
+      <text class="t c-bad" x="630" y="160" text-anchor="middle">money goes to stranger</text>
+      <text class="ts" x="360" y="200" text-anchor="middle">A multiple-use VA keeps accepting payments until it expires; a single-use one stops after the first.</text>
+    </svg>
+    <figcaption>Gateways such as Xendit state that a used single-use number can be recreated for another customer or transaction.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>Single-use: one payment, then inactive.</li><li>Multiple-use: many payments until the expiry date.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Never offer a pay button for a dynamic VA from history.</li><li>Delete the card once paid or expired.</li></ul></div>
+  </div>
+</section>
+
+<!-- 5 CLOSED VS OPEN -->
+<section id="amount">
+  <h2><span class="n">05</span>Closed amount vs open amount: what happens after entering the VA</h2>
+  <p class="lede">Closed amount means the exact bill and nothing else. Open amount means the user picks how much.</p>
+  <figure>
+    <svg viewBox="0 0 720 330" role="img" aria-label="Closed amount: after entering the VA the bank shows the merchant and a locked amount; a different amount is rejected. Open amount: the bank shows the name but no amount and the user types any amount above the minimum.">
+      <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <text class="t tb" x="15" y="30">Closed amount (most checkouts)</text>
+      <rect class="b" x="15" y="44" width="150" height="74" rx="8"/>
+      <text class="ts" x="90" y="64" text-anchor="middle">1. Enter VA</text>
+      <text class="t tm" x="90" y="88" text-anchor="middle">8808 1023 4471</text>
+      <text class="t tm" x="90" y="106" text-anchor="middle">5520</text>
+      <line class="ln" x1="165" y1="81" x2="191" y2="81" marker-end="url(#a5)"/>
+      <rect class="b" x="195" y="44" width="150" height="74" rx="8"/>
+      <text class="ts" x="270" y="64" text-anchor="middle">2. Bank shows</text>
+      <text class="t" x="270" y="88" text-anchor="middle">Xendit-Shopee</text>
+      <text class="t tb" x="270" y="106" text-anchor="middle">Rp152.347</text>
+      <line class="ln" x1="345" y1="81" x2="371" y2="81" marker-end="url(#a5)"/>
+      <rect class="b-acc" x="375" y="44" width="150" height="74" rx="8"/>
+      <text class="ts" x="450" y="64" text-anchor="middle">3. Amount</text>
+      <text class="t" x="450" y="88" text-anchor="middle">Locked at</text>
+      <text class="t tb" x="450" y="106" text-anchor="middle">Rp152.347</text>
+      <line class="ln" x1="525" y1="81" x2="551" y2="81" marker-end="url(#a5)"/>
+      <rect class="b-ok" x="555" y="44" width="150" height="74" rx="8"/>
+      <text class="ts" x="630" y="64" text-anchor="middle">4. Result</text>
+      <text class="t tb c-ok" x="630" y="95" text-anchor="middle">Paid ✓</text>
+      <line class="ln" x1="450" y1="118" x2="450" y2="136" marker-end="url(#a5)"/>
+      <rect class="b-bad" x="375" y="140" width="330" height="40" rx="8"/>
+      <text class="t c-bad" x="540" y="165" text-anchor="middle">Different amount (e.g. Rp152.000) → rejected</text>
+
+      <text class="t tb" x="15" y="222">Open amount (top-ups)</text>
+      <rect class="b" x="15" y="236" width="150" height="74" rx="8"/>
+      <text class="ts" x="90" y="256" text-anchor="middle">1. Enter VA</text>
+      <text class="t tm" x="90" y="280" text-anchor="middle">70001 0812</text>
+      <text class="t tm" x="90" y="298" text-anchor="middle">3456 789</text>
+      <line class="ln" x1="165" y1="273" x2="191" y2="273" marker-end="url(#a5)"/>
+      <rect class="b" x="195" y="236" width="150" height="74" rx="8"/>
+      <text class="ts" x="270" y="256" text-anchor="middle">2. Bank shows</text>
+      <text class="t" x="270" y="280" text-anchor="middle">GoPay · Gio</text>
+      <text class="ts" x="270" y="298" text-anchor="middle">no amount</text>
+      <line class="ln" x1="345" y1="273" x2="371" y2="273" marker-end="url(#a5)"/>
+      <rect class="b-acc" x="375" y="236" width="150" height="74" rx="8"/>
+      <text class="ts" x="450" y="256" text-anchor="middle">3. Amount</text>
+      <text class="t" x="450" y="280" text-anchor="middle">User types any</text>
+      <text class="t" x="450" y="298" text-anchor="middle">amount ≥ minimum</text>
+      <line class="ln" x1="525" y1="273" x2="551" y2="273" marker-end="url(#a5)"/>
+      <rect class="b-ok" x="555" y="236" width="150" height="74" rx="8"/>
+      <text class="ts" x="630" y="256" text-anchor="middle">4. Result</text>
+      <text class="t tb c-ok" x="630" y="280" text-anchor="middle">Balance</text>
+      <text class="t tb c-ok" x="630" y="298" text-anchor="middle">+Rp100.000</text>
+    </svg>
+    <figcaption>Paying from the same bank, the amount is usually filled in after step 1. From another bank, the user types it, so a wrong amount is possible. A third type, variable amount, shows a bill but lets the user pay a different sum (used for instalments). BCA's default minimum for open VAs is Rp10,000.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>Closed: exact amount down to the last digit; anything else fails.</li><li>Open: any amount above the minimum is accepted.</li><li>Fees (top-up fee, interbank fee) can sit on top.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Closed: capture the full amount, last 3 digits included; show it large with tap-to-copy.</li><li>Open: show “you choose the amount”; never invent one.</li></ul></div>
+  </div>
+</section>
+
+<!-- 6 SAME VS OTHER BANK -->
+<section id="bank">
+  <h2><span class="n">06</span>Paying from the same bank vs another bank</h2>
+  <p class="lede">Same bank is the smooth path. Another bank works only if the merchant's VA accepts it, and can be slower.</p>
+  <figure>
+    <svg viewBox="0 0 720 300" role="img" aria-label="Same bank: open the bank's VA menu, paste, bank shows name and amount, confirm, paid instantly. Other bank: choose interbank transfer, paste the VA as the account number, type the amount plus fee, send by BI-FAST or online, and it may fail or be slow.">
+      <defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <text class="t tb" x="16" y="28">Same bank: BCA VA, paid from a BCA account</text>
+      <rect class="b" x="16" y="42" width="124" height="74" rx="8"/>
+      <text class="t" x="78" y="66" text-anchor="middle">m-Transfer ›</text><text class="t" x="78" y="84" text-anchor="middle">BCA Virtual</text><text class="t" x="78" y="102" text-anchor="middle">Account</text>
+      <line class="ln" x1="140" y1="79" x2="153" y2="79" marker-end="url(#a6)"/>
+      <rect class="b" x="157" y="42" width="124" height="74" rx="8"/>
+      <text class="t" x="219" y="75" text-anchor="middle">Paste VA</text><text class="ts" x="219" y="93" text-anchor="middle">number only</text>
+      <line class="ln" x1="281" y1="79" x2="294" y2="79" marker-end="url(#a6)"/>
+      <rect class="b-acc" x="298" y="42" width="124" height="74" rx="8"/>
+      <text class="t" x="360" y="66" text-anchor="middle">Bank shows</text><text class="t" x="360" y="84" text-anchor="middle">name and</text><text class="t" x="360" y="102" text-anchor="middle">amount</text>
+      <line class="ln" x1="422" y1="79" x2="435" y2="79" marker-end="url(#a6)"/>
+      <rect class="b" x="439" y="42" width="124" height="74" rx="8"/>
+      <text class="t" x="501" y="75" text-anchor="middle">Confirm</text><text class="ts" x="501" y="93" text-anchor="middle">with PIN</text>
+      <line class="ln" x1="563" y1="79" x2="576" y2="79" marker-end="url(#a6)"/>
+      <rect class="b-ok" x="580" y="42" width="124" height="74" rx="8"/>
+      <text class="t tb c-ok" x="642" y="75" text-anchor="middle">Paid</text><text class="ts" x="642" y="93" text-anchor="middle">instantly</text>
+
+      <text class="t tb" x="16" y="168">Other bank: BCA VA, paid from a Mandiri account</text>
+      <rect class="b" x="16" y="182" width="124" height="74" rx="8"/>
+      <text class="t" x="78" y="206" text-anchor="middle">Transfer to</text><text class="t" x="78" y="224" text-anchor="middle">other bank ›</text><text class="t" x="78" y="242" text-anchor="middle">BCA (014)</text>
+      <line class="ln" x1="140" y1="219" x2="153" y2="219" marker-end="url(#a6)"/>
+      <rect class="b" x="157" y="182" width="124" height="74" rx="8"/>
+      <text class="t" x="219" y="206" text-anchor="middle">Paste VA as</text><text class="t" x="219" y="224" text-anchor="middle">the account</text><text class="t" x="219" y="242" text-anchor="middle">number</text>
+      <line class="ln" x1="281" y1="219" x2="294" y2="219" marker-end="url(#a6)"/>
+      <rect class="b-warn" x="298" y="182" width="124" height="74" rx="8"/>
+      <text class="t" x="360" y="206" text-anchor="middle">Type amount</text><text class="t" x="360" y="224" text-anchor="middle">yourself</text><text class="ts" x="360" y="242" text-anchor="middle">+ any fees</text>
+      <line class="ln" x1="422" y1="219" x2="435" y2="219" marker-end="url(#a6)"/>
+      <rect class="b" x="439" y="182" width="124" height="74" rx="8"/>
+      <text class="t" x="501" y="206" text-anchor="middle">Send by</text><text class="t" x="501" y="224" text-anchor="middle">BI-FAST or</text><text class="t" x="501" y="242" text-anchor="middle">online transfer</text>
+      <line class="ln" x1="563" y1="219" x2="576" y2="219" marker-end="url(#a6)"/>
+      <rect class="b-bad" x="580" y="182" width="124" height="74" rx="8"/>
+      <text class="t tb c-bad" x="642" y="206" text-anchor="middle">May fail</text><text class="t c-bad" x="642" y="224" text-anchor="middle">or take up to</text><text class="t c-bad" x="642" y="242" text-anchor="middle">1×24 work hrs</text>
+      <text class="ts" x="360" y="286" text-anchor="middle">Menu names differ: Mandiri Livin' uses Bayar / Multipayment, BRI uses BRIVA, BNI uses Virtual Account Billing.</text>
+    </svg>
+    <figcaption>BCA VAs accept payments from other banks since 15 Nov 2024, but whether a specific VA does also depends on the gateway's setup. Xendit, for example, says BI-FAST to a VA works only for BSS and BRI VAs.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>Gateways recommend paying a BNI VA from BNI, a BCA VA from BCA, and so on.</li><li>From another bank the user types the amount, adds fees and waits longer.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Default the bank button to the VA's own bank if that app is installed.</li><li>If the user picks a different bank, warn that it may fail and suggest changing the VA bank in the shopping app.</li></ul></div>
+  </div>
+</section>
+
+<!-- 7 EXPIRY -->
+<section id="expiry">
+  <h2><span class="n">07</span>Expiry: the money must arrive before the deadline</h2>
+  <p class="lede">The merchant sets the deadline. What counts is when the money arrives, not when the user pressed send.</p>
+  <figure>
+    <svg viewBox="0 0 720 230" role="img" aria-label="A VA is active from checkout at 10:00 to an 11:00 deadline. A same-bank payment at 10:15 arrives instantly and succeeds. An interbank transfer sent at 10:50 arrives at 11:20, after the deadline, and fails.">
+      <defs><marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <rect class="b-ok" x="60" y="122" width="400" height="28" rx="4"/>
+      <rect class="b-bad" x="460" y="122" width="220" height="28" rx="4"/>
+      <text class="t tb c-ok" x="260" y="141" text-anchor="middle">VA active</text>
+      <text class="t tb c-bad" x="570" y="141" text-anchor="middle">Expired: payments fail</text>
+      <line class="ln" x1="60" y1="150" x2="60" y2="166"/>
+      <line class="ln" x1="460" y1="150" x2="460" y2="166"/>
+      <text class="t tb" x="60" y="184">10:00</text><text class="ts" x="60" y="201">Checkout, VA created</text>
+      <text class="t tb" x="460" y="184" text-anchor="middle">11:00</text><text class="ts" x="460" y="201" text-anchor="middle">Deadline set by the merchant</text>
+
+      <circle class="dot-ok" cx="150" cy="70" r="7"/>
+      <text class="t" x="164" y="66">10:15 pay from same bank</text>
+      <text class="ts" x="164" y="83">arrives instantly ✓</text>
+      <line class="ln" x1="150" y1="77" x2="150" y2="118" marker-end="url(#a7)"/>
+
+      <circle class="dot-warn" cx="400" cy="40" r="7"/>
+      <text class="t" x="414" y="36">10:50 sent from another bank</text>
+      <path class="ln ln-bad dash" d="M400,47 C420,95 520,80 560,118" marker-end="url(#a7)"/>
+      <text class="t c-bad" x="590" y="96">arrives 11:20 → fails</text>
+    </svg>
+    <figcaption>Gateways often default to 24 hours (Midtrans, Xendit invoices), but each merchant can set a much shorter deadline. Making a new checkout can also cancel the old VA: on Tokopedia, a new BCA VA payment cancels the unpaid one.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>After expiry the VA can't be paid or revived; the user must check out again.</li><li>Interbank delays can push a payment past the deadline.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Count down from the deadline read on screen; if none is captured, say “check deadline in app”, never assume 24 hours.</li><li>Warn when time is short and the user picked another bank.</li><li>A new VA from the same app replaces the old card.</li></ul></div>
+  </div>
+</section>
+
+<!-- 8 CONFIRMATION -->
+<section id="confirm">
+  <h2><span class="n">08</span>Confirmation is automatic, but the OS can't see it</h2>
+  <p class="lede">The bank tells the merchant in real time. The phone only learns about it when the shopping app updates or sends a notification.</p>
+  <figure>
+    <svg viewBox="0 0 720 210" role="img" aria-label="Payment goes from the bank app to the bank, then the gateway, then the merchant, which updates the shopping app. The island only learns the result from the shopping app's notification.">
+      <defs><marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <rect class="pill" x="470" y="14" width="230" height="40" rx="20"/>
+      <text class="tp" x="585" y="39" text-anchor="middle">Island: Waiting → Paid ✓</text>
+      <rect class="b" x="16" y="120" width="124" height="56" rx="8"/><text class="t" x="78" y="144" text-anchor="middle">You pay in</text><text class="t" x="78" y="162" text-anchor="middle">the bank app</text>
+      <line class="ln" x1="140" y1="148" x2="153" y2="148" marker-end="url(#a8)"/>
+      <rect class="b" x="157" y="120" width="124" height="56" rx="8"/><text class="t" x="219" y="152" text-anchor="middle">Bank</text>
+      <line class="ln" x1="281" y1="148" x2="294" y2="148" marker-end="url(#a8)"/>
+      <rect class="b" x="298" y="120" width="124" height="56" rx="8"/><text class="t" x="360" y="144" text-anchor="middle">Gateway</text><text class="ts" x="360" y="162" text-anchor="middle">Xendit, Midtrans…</text>
+      <line class="ln" x1="422" y1="148" x2="435" y2="148" marker-end="url(#a8)"/>
+      <rect class="b" x="439" y="120" width="124" height="56" rx="8"/><text class="t" x="501" y="152" text-anchor="middle">Merchant</text>
+      <line class="ln" x1="563" y1="148" x2="576" y2="148" marker-end="url(#a8)"/>
+      <rect class="b-ok" x="580" y="120" width="124" height="56" rx="8"/><text class="t" x="642" y="144" text-anchor="middle">Shopee app:</text><text class="t tb c-ok" x="642" y="162" text-anchor="middle">“Dikemas”</text>
+      <line class="ln ln-ok dash" x1="642" y1="120" x2="642" y2="58" marker-end="url(#a8)"/>
+      <text class="ts" x="652" y="92">notification</text>
+      <text class="ts" x="219" y="104" text-anchor="middle">in seconds to minutes</text>
+      <text class="ts" x="16" y="34">The OS is not part of this chain,</text>
+      <text class="ts" x="16" y="51">so it can't confirm a payment by itself.</text>
+    </svg>
+    <figcaption>No proof of transfer is needed: the order status changes on its own once the bank reports the payment. Interbank payments can take longer.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>Bank → gateway → merchant happens without the user.</li><li>The shopping app shows the new status.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>When the user returns from the bank app, switch to “Waiting for confirmation”.</li><li>Mark as paid only from the shopping app's notification or screen, never by guessing.</li></ul></div>
+  </div>
+</section>
+
+<!-- 9 RISKS -->
+<section id="risk">
+  <h2><span class="n">09</span>Two ways money goes to the wrong place</h2>
+  <p class="lede">A misread digit, or a VA that didn't come from a real shopping app.</p>
+  <figure>
+    <svg viewBox="0 0 720 260" role="img" aria-label="Left: a misread last digit can match another customer's open VA and send money there. Right: a VA sent by chat should not be captured or given a pay button.">
+      <defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <text class="t tb" x="20" y="28">One wrong digit</text>
+      <rect class="b" x="20" y="42" width="320" height="42" rx="8"/>
+      <text class="t" x="34" y="68">Screen shows</text><text class="t tm" x="326" y="68" text-anchor="end">8808 1023 4471 5520</text>
+      <line class="ln" x1="180" y1="84" x2="180" y2="100" marker-end="url(#a9)"/>
+      <rect class="b-warn" x="20" y="104" width="320" height="42" rx="8"/>
+      <text class="t" x="34" y="130">Island misreads</text><text class="t tm" x="326" y="130" text-anchor="end">8808 1023 4471 552<tspan class="c-bad">8</tspan></text>
+      <line class="ln" x1="180" y1="146" x2="180" y2="162" marker-end="url(#a9)"/>
+      <rect class="b-bad" x="20" y="166" width="320" height="42" rx="8"/>
+      <text class="t c-bad" x="180" y="186" text-anchor="middle">That number is another customer's</text>
+      <text class="t c-bad" x="180" y="202" text-anchor="middle">open VA: the money goes to them</text>
+      <text class="ts" x="20" y="236">Safety step: the name on the bank screen must match.</text>
+
+      <line class="ln dash" x1="360" y1="20" x2="360" y2="245" style="stroke:var(--line)"/>
+
+      <text class="t tb" x="380" y="28">Fake VA from a chat</text>
+      <rect class="b" x="380" y="42" width="320" height="42" rx="8"/>
+      <text class="t" x="394" y="61">WhatsApp: “Pay Rp500.000 to</text>
+      <text class="t" x="394" y="77">VA 8808 9911 …, urgent”</text>
+      <line class="ln" x1="540" y1="84" x2="540" y2="100" marker-end="url(#a9)"/>
+      <rect class="b-warn" x="380" y="104" width="320" height="42" rx="8"/>
+      <text class="t" x="540" y="130" text-anchor="middle">Not from an approved shopping app</text>
+      <line class="ln" x1="540" y1="146" x2="540" y2="162" marker-end="url(#a9)"/>
+      <rect class="b-ok" x="380" y="166" width="320" height="42" rx="8"/>
+      <text class="t c-ok" x="540" y="186" text-anchor="middle">Island: don't capture automatically,</text>
+      <text class="t c-ok" x="540" y="202" text-anchor="middle">no pay button</text>
+      <text class="ts" x="380" y="236">Some apps let users rename a VA's display name.</text>
+    </svg>
+    <figcaption>BCA warns about scammers guiding people to pay a VA with a faked name, and about fake “Bayar di myBCA” buttons that lead to phishing pages.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What happens</h3><ul><li>A valid but wrong VA is accepted by the bank; getting the money back is slow.</li><li>Scammers rely on people not checking the receiver's name.</li></ul></div>
+    <div class="island"><h3>For the island</h3><ul><li>Show the number in groups of 4 and remind the user to check the name.</li><li>Auto-capture only from an approved list of shopping apps; label the source app.</li></ul></div>
+  </div>
+</section>
+
+<!-- 10 JOURNEY -->
+<section id="journey">
+  <h2><span class="n">10</span>Putting it together: the island payment journey</h2>
+  <p class="lede">What the user sees, step by step, given the rules above and no bank partnership yet.</p>
+  <figure>
+    <svg viewBox="0 0 720 250" role="img" aria-label="Six steps: checkout shows a VA, the island captures bank, number, amount and deadline, a tap opens the bank app, the user pastes the number, checks the name and amount and confirms, and the island waits for the shopping app to confirm payment.">
+      <defs><marker id="a10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      <rect class="pill" x="150" y="14" width="420" height="44" rx="22"/>
+      <text class="tp" x="176" y="41">BCA</text>
+      <text class="tp tm" x="216" y="41">8808 1023 4471 5520</text>
+      <text class="tp" x="430" y="41">Rp152.347</text>
+      <text class="tp tm" x="544" y="41" text-anchor="end">42:10</text>
+      <text class="ts" x="360" y="76" text-anchor="middle">Island card: bank · number in groups · exact amount · time left</text>
+
+      <rect class="b" x="15" y="96" width="104" height="96" rx="8"/>
+      <text class="ts" x="67" y="116" text-anchor="middle">1</text><text class="t" x="67" y="138" text-anchor="middle">Checkout</text><text class="t" x="67" y="156" text-anchor="middle">shows VA</text><text class="ts" x="67" y="174" text-anchor="middle">in Shopee</text>
+      <line class="ln" x1="119" y1="144" x2="128" y2="144" marker-end="url(#a10)"/>
+      <rect class="b-acc" x="132" y="96" width="104" height="96" rx="8"/>
+      <text class="ts" x="184" y="116" text-anchor="middle">2</text><text class="t" x="184" y="138" text-anchor="middle">Island</text><text class="t" x="184" y="156" text-anchor="middle">captures</text><text class="ts" x="184" y="174" text-anchor="middle">number, amount</text>
+      <line class="ln" x1="236" y1="144" x2="245" y2="144" marker-end="url(#a10)"/>
+      <rect class="b" x="249" y="96" width="104" height="96" rx="8"/>
+      <text class="ts" x="301" y="116" text-anchor="middle">3</text><text class="t" x="301" y="138" text-anchor="middle">Tap opens</text><text class="t" x="301" y="156" text-anchor="middle">bank app</text><text class="ts" x="301" y="174" text-anchor="middle">VA's own bank</text>
+      <line class="ln" x1="353" y1="144" x2="362" y2="144" marker-end="url(#a10)"/>
+      <rect class="b-warn" x="366" y="96" width="104" height="96" rx="8"/>
+      <text class="ts" x="418" y="116" text-anchor="middle">4</text><text class="t" x="418" y="138" text-anchor="middle">User pastes</text><text class="t" x="418" y="156" text-anchor="middle">the number</text><text class="ts" x="418" y="174" text-anchor="middle">no pre-fill yet</text>
+      <line class="ln" x1="470" y1="144" x2="479" y2="144" marker-end="url(#a10)"/>
+      <rect class="b" x="483" y="96" width="104" height="96" rx="8"/>
+      <text class="ts" x="535" y="116" text-anchor="middle">5</text><text class="t" x="535" y="138" text-anchor="middle">Checks name</text><text class="t" x="535" y="156" text-anchor="middle">and amount</text><text class="ts" x="535" y="174" text-anchor="middle">then PIN</text>
+      <line class="ln" x1="587" y1="144" x2="596" y2="144" marker-end="url(#a10)"/>
+      <rect class="b-ok" x="600" y="96" width="104" height="96" rx="8"/>
+      <text class="ts" x="652" y="116" text-anchor="middle">6</text><text class="t" x="652" y="138" text-anchor="middle">Island:</text><text class="t" x="652" y="156" text-anchor="middle">waiting → paid</text><text class="ts" x="652" y="174" text-anchor="middle">from app notice</text>
+
+      <text class="ts" x="418" y="216" text-anchor="middle">Step 4 becomes automatic only with bank deals</text>
+      <text class="ts" x="418" y="232" text-anchor="middle">(like BCA's “Bayar di myBCA” for merchants)</text>
+      <line class="ln dash" x1="418" y1="192" x2="418" y2="204"/>
+    </svg>
+    <figcaption>Tap-to-copy runs on Android's clipboard: Android 13+ clears it automatically after a while, so copy at the moment of the tap and mark the content as sensitive.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><h3>What the island removes</h3><ul><li>Switching back to the shopping app to re-read the number, amount and deadline.</li><li>Losing track of the deadline.</li></ul></div>
+    <div class="island"><h3>What it can't remove (yet)</h3><ul><li>Pasting into the bank app, unless banks agree to pre-fill.</li><li>Confirming payment by itself; that comes from the shopping app.</li></ul></div>
+  </div>
+</section>
+
+<footer>
+  <p>Not drawn here, but in the sheet: amount limits, Bank Indonesia's SNAP API standard, screen-capture blocking in some apps, and keeping phone-number VAs on the device only.</p>
+  <p>Main sources: BCA Virtual Account pages and terms; BCA notice on interbank VA payments (Oct 2024); Xendit docs (VA features, expiry, payments); Midtrans bank transfer docs; Tokopedia help; BCA “Awas Modus” fraud warnings; Android developer docs on clipboard handling.</p>
+</footer>
+</div>
+</body>
+</html>
